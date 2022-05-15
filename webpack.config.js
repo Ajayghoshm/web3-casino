@@ -2,5 +2,5 @@ const NodePolyfillPlugin = require("node-polyfill-webpack-plugin");
 
 module.exports = {
   // Other rules...
-  plugins: [new NodePolyfillPlugin()],
+  plugins: [new NodePolyfillPlugin(), require("tailwindcss")],
 };
