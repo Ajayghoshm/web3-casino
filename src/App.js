@@ -4,6 +4,7 @@ import betting from "./betting";
 import web3 from "./web3";
 import Select from "react-select";
 import { TeamsList } from "./pages/constant";
+import Web3 from "web3";
 
 const Dashboard = () => {
   const [manager, setManager] = useState("");
@@ -19,6 +20,11 @@ const Dashboard = () => {
   const [firstTeam, setFirstTeam] = useState();
   const [secondTeam, setSecondTeam] = useState();
   const [teamPool, setTeampool] = useState([]);
+  const [betStatus, setBetStatus] = useState();
+  const [winnerTeam, setWinnerTeam] = useState();
+  const [currentBetId, setCurrentBetId] = useState();
+
+  const [currentAccount, setCurrentAccount] = useState();
 
   useEffect(() => {
     let pool = TeamsList.map((item) => {
@@ -33,33 +39,43 @@ const Dashboard = () => {
 
   useEffect(() => {
     const init = async () => {
-      console.debug("betting", betting);
-      const manager = await betting.methods.owner().call();
+      console.debug("Intialize", betting);
       await window.ethereum.enable();
       let accounts = await web3.eth.getAccounts();
-      console.debug("account", accounts[0], manager);
-      let checkExist = await betting.methods
-        .checkPlayerExists(accounts[0])
-        .call();
-      setIsExist(checkExist);
-      if (checkExist) {
-        let selected = await betting.methods.playerInfo(accounts[0]).call();
-        console.debug(selected, "selected");
-        setSubmittedAnswer(selected);
-      }
+      setCurrentAccount(accounts[0]);
 
-      // const players = await betting.methods.players().call();
-      // setPlayers(players);
       const balance = await web3.eth.getBalance(betting.options.address);
-
-      setManager(manager);
-
       setContractBalance(balance);
-      if (accounts[0] == manager) {
+
+      const manager = await betting.methods.owner().call();
+      setManager(manager);
+      if (accounts[0] === manager) {
+        console.debug("I am a manager");
         setIsManager(true);
       } else {
+        console.debug("I am a player");
         setIsManager(false);
+        let checkExist = await betting.methods
+          .checkPlayerExists(accounts[0])
+          .call();
+        setIsExist(checkExist);
+        if (checkExist) {
+          console.debug("I already betted");
+          let selected = await betting.methods.playerInfo(accounts[0]).call();
+          console.debug(selected, "selected");
+          setSubmittedAnswer(selected);
+        }
       }
+
+      let matchID = await betting.methods.matchID().call();
+      console.debug("Match Id", matchID);
+      setCurrentBetId(matchID);
+      let status = await betting.methods.isBetOpen(matchID).call();
+      console.debug("currentBet Status", status);
+      setBetStatus(status);
+
+      const players = await betting.methods.getPlayers().call();
+      setPlayers(players);
     };
 
     init();
@@ -76,15 +92,40 @@ const Dashboard = () => {
     await window.ethereum.enable();
     let accounts = await web3.eth.getAccounts();
     let team;
-    if (selectedTeam === teamPool[0]) {
+    if (selectedTeam === winnerTeam) {
       team = 1;
     } else {
       team = 2;
     }
-    await betting.methods.result(team).send({
+    await betting.methods.result(currentBetId, team).send({
       from: accounts[0],
+      gas: 100000,
     });
-    await betting.methods.destroyBet().call();
+    await betting.methods
+      .disableBetting(currentBetId)
+      .send({ from: currentAccount });
+  };
+
+  const onOwnerCreateBet = async (e) => {
+    e.preventDefault();
+    console.debug("creating bet");
+    let value = Math.floor(Math.random() * 90000) + 10000;
+    await betting.methods.enableBetting(value).send({ from: currentAccount });
+    console.debug("Match Id", value);
+    let status = await betting.methods
+      .isBetOpen(value)
+      .call(function (err, res) {
+        if (err) {
+          console.log("An error occured", err);
+          return;
+        }
+        console.log("is the bet open ", res);
+      });
+    if (status) {
+      setBetStatus(true);
+    } else {
+      setBetStatus(false);
+    }
   };
 
   const onPlayerSubmit = async (e) => {
@@ -97,19 +138,9 @@ const Dashboard = () => {
     } else {
       team = 2;
     }
-    await betting.methods.bet(team).send({ from: accounts[0], value: value });
-  };
-
-  const onPickWinner = async () => {
-    const accounts = await web3.eth.getAccounts();
-
-    setMessage("Waiting on transaction success...");
-
-    await betting.methods.pickWinner().send({
-      from: accounts[0],
-    });
-
-    setMessage("A winner has been picked!");
+    await betting.methods
+      .bet(currentBetId, team)
+      .send({ from: accounts[0], value: value, gas: "1000000" });
   };
 
   return (
@@ -133,7 +164,7 @@ const Dashboard = () => {
     // </div>
 
     <div>
-      <h2>Betting Contract</h2>
+      <h2 className="text-bold">Betting</h2>
       <p>This contract is managed by admin with address: {manager}</p>
       {ismanager
         ? "You are Logined as the manager"
@@ -143,7 +174,15 @@ const Dashboard = () => {
         prize of {web3?.utils.fromWei(contractBalance, "ether")} ether!
       </p>
       <hr />
-      <form onSubmit={!ismanager ? onPlayerSubmit : onOwnerResultSubmit}>
+      <form
+        onSubmit={
+          !ismanager
+            ? onPlayerSubmit
+            : betStatus
+            ? onOwnerResultSubmit
+            : onOwnerCreateBet
+        }
+      >
         {!ismanager ? (
           <>
             {!isExist ? (
@@ -178,19 +217,32 @@ const Dashboard = () => {
           </>
         ) : (
           <>
-            <div className="flex justify-between ">
-              <Select
-                options={teamPool}
-                value={firstTeam}
-                onChange={(e) => onFirstTeamChange(e)}
-              />
-              <Select
-                options={teamPool}
-                value={secondTeam}
-                onChange={(e) => onSecondTeamChange(e)}
-              />
-              <button type="submit">Sumbit</button>
-            </div>
+            {!betStatus ? (
+              <div className="flex justify-between ">
+                <h2>start a bet</h2>
+                <Select
+                  options={teamPool}
+                  value={firstTeam}
+                  onChange={(e) => onFirstTeamChange(e)}
+                />
+                <Select
+                  options={teamPool}
+                  value={secondTeam}
+                  onChange={(e) => onSecondTeamChange(e)}
+                />
+                <button type="submit">Sumbit</button>
+              </div>
+            ) : (
+              <div className="flex justify-between ">
+                <h2>Announce the result</h2>
+                <Select
+                  options={teamPool}
+                  value={firstTeam}
+                  onChange={(e) => setWinnerTeam(e)}
+                />
+                <button type="submit">Sumbit</button>
+              </div>
+            )}
           </>
         )}
       </form>

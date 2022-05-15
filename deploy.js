@@ -12,7 +12,7 @@ const provider = new HDWalletProvider({
       "sock record verify advice bless filter nominee pottery midnight champion unable tragic",
   },
   providerOrUrl:
-    "wss://rinkeby.infura.io/ws/v3/49f81bc9d9b14195b784955e287c0e71",
+    "wss://rinkeby.infura.io/ws/v3/186313ff9e3948a6a3f6a0f31b75253d",
 });
 const web3 = new Web3(provider);
 
